@@ -1,89 +1,80 @@
 import streamlit as st
 import datetime
 
-# --- Design & Setup ---
-st.set_page_config(page_title="Abfrage-Übersetzer", page_icon="⚡", layout="centered")
-st.title("⚡ Energie-Trading Abfrage-Übersetzer")
-st.write("Klicke einfach an, was du wissen möchtest. Das Tool übersetzt deine Wünsche automatisch in die richtigen Datenbank-Felder für die IT.")
+st.set_page_config(page_title="Positioning Service Übersetzer", page_icon="🎯", layout="centered")
+st.title("🎯 Query-Generator für das Positioning Panel")
+st.write("Wähle deine Filter auf Deutsch aus. Unten erhältst du den fertigen Code, den du direkt in das Feld 'Filterausdruck' im Positioning Query Panel kopieren kannst.")
 
 st.markdown("---")
 
-# --- 1. Nutzereingaben (Business-Sicht) ---
-st.subheader("1. Wen oder was suchst du?")
-col1, col2 = st.columns(2)
+# --- 1. Eingaben (Business-Logik) ---
+st.subheader("1. Was möchtest du filtern?")
 
+col1, col2 = st.columns(2)
 with col1:
-    rohstoff = st.selectbox("Welcher Rohstoff?", ["Alle", "Strom", "Gas", "Emissionen"])
-    richtung = st.selectbox("Handelsrichtung?", ["Alle", "Kauf (Buy)", "Verkauf (Sell)"])
+    rohstoff = st.selectbox("Rohstoff (Commodity)", ["Alle", "Strom (Power)", "Gas", "Emissionen"])
+    richtung = st.selectbox("Richtung (Direction)", ["Alle", "Kauf (Buy)", "Verkauf (Sell)"])
 
 with col2:
-    partner = st.text_input("Bestimmter Handelspartner? (Optional)", placeholder="z.B. Stadtwerke XYZ")
-    portfolio = st.text_input("Bestimmtes Portfolio? (Optional)", placeholder="z.B. Base_Load_2026")
+    # Wir nutzen Text-Inputs für die unscharfe Suche (~)
+    partner = st.text_input("Handelspartner (OtherParty)", placeholder="z.B. aachen (auch Teilworte ok)")
+    portfolio = st.text_input("Portfolio", placeholder="z.B. Eigenhandel")
 
-st.subheader("2. Welcher Zeitraum?")
-zeitraum_typ = st.radio("Auf welches Datum bezieht sich die Abfrage?",
-                        ["Lieferzeitraum (Wann fließt die Energie?)",
-                         "Handelszeitpunkt (Wann wurde der Deal gemacht?)"])
-
-start_datum = st.date_input("Startdatum", datetime.date.today())
-end_datum = st.date_input("Enddatum", datetime.date.today() + datetime.timedelta(days=30))
-
-st.subheader("3. Welche Informationen möchtest du im Ergebnis sehen?")
-# Hier ordnen wir die deutschen Begriffe den technischen Feldern zu
-auswahl_felder = {
-    "Deal-Nummer": "DealId",
-    "Partner-Name": "OtherParty / OtherPartyName",
-    "Preis & Währung": "Price, Currency",
-    "Gesamtmenge (MWh)": "TotalEnergyMWh",
-    "Gesamtumsatz": "TotalTurnover",
-    "Marktplatz / Börse": "Market / Exchange"
-}
-
-gewuenschte_spalten = st.multiselect(
-    "Wähle die gewünschten Spalten für deine Tabelle:",
-    options=list(auswahl_felder.keys()),
-    default=["Deal-Nummer", "Preis & Währung", "Gesamtmenge (MWh)"]
-)
+st.markdown("---")
+st.subheader("2. Erweiterte Filter (Optional)")
+vertragsart = st.selectbox("Vertragsart (ContractType)", ["Alle", "Standard", "Non-Standard", "Bilateral"])
+intern_extern = st.radio("Interne oder Externe Deals?", ["Alle", "Nur Intern (Internal = true)", "Nur Extern (Internal = false)"])
 
 st.markdown("---")
 
-# --- 2. Übersetzung in IT-Logik (Das Herzstück) ---
-st.subheader("🤖 Deine übersetzte IT-Abfrage")
-st.write("Kopiere diese Logik für deine Datenbank-Abfrage oder gib sie an die IT weiter:")
+# --- 2. Logik-Generierung für das Positioning Query Panel ---
+st.subheader("📋 Dein fertiger Filterausdruck")
+st.write("Kopiere diesen Text und füge ihn im Positioning Query Panel unten links bei 'Filterausdruck' ein:")
 
-# Logik-Baukasten
-abfrage_logik = []
+logik_teile = []
 
-if rohstoff != "Alle":
-    abfrage_logik.append(f"Commodity = '{rohstoff}'")
+# Rohstoff
+if rohstoff == "Strom (Power)":
+    logik_teile.append("Commodity ~ 'power'") # Wir nutzen ~ für unscharfe Suche, das ist sicherer
+elif rohstoff == "Gas":
+    logik_teile.append("Commodity ~ 'gas'")
+elif rohstoff == "Emissionen":
+    logik_teile.append("Commodity ~ 'emission'")
 
-if richtung != "Alle":
-    tech_richtung = "Buy" if "Kauf" in richtung else "Sell"
-    abfrage_logik.append(f"Direction = '{tech_richtung}'")
+# Richtung
+if richtung == "Kauf (Buy)":
+    logik_teile.append("Direction = 'BUY'")
+elif richtung == "Verkauf (Sell)":
+    logik_teile.append("Direction = 'SELL'")
 
+# Textfelder (Wir nutzen den ~ Operator, wie im Handbuch empfohlen!)
 if partner:
-    abfrage_logik.append(f"OtherParty LIKE '%{partner}%'")
+    # Entfernt führende/nachfolgende Leerzeichen und macht es klein (sicherer bei ~)
+    partner_clean = partner.strip().lower() 
+    logik_teile.append(f"OtherParty ~ '{partner_clean}'")
 
 if portfolio:
-    abfrage_logik.append(f"Portfolio LIKE '%{portfolio}%'")
+    logik_teile.append(f"Portfolio ~ '{portfolio.strip()}'")
 
-# Datumslogik übersetzen
-if "Lieferzeitraum" in zeitraum_typ:
-    abfrage_logik.append(f"DeliveryStart >= '{start_datum}'")
-    abfrage_logik.append(f"DeliveryEnd <= '{end_datum}'")
+# Erweiterte Filter
+if vertragsart != "Alle":
+    logik_teile.append(f"ContractType ~ '{vertragsart}'")
+
+if intern_extern == "Nur Intern (Internal = true)":
+    logik_teile.append("Internal = true") # Booleans brauchen oft keine Anführungszeichen, abhängig vom System. Ggf. 'true'
+elif intern_extern == "Nur Extern (Internal = false)":
+    logik_teile.append("Internal = false")
+
+# --- 3. Ausgabe ---
+if not logik_teile:
+    st.info("Du hast noch keine Filter gesetzt. Das Panel zeigt dir aktuell ALLE Daten an.")
+    ausgabe_text = ""
 else:
-    abfrage_logik.append(f"TransactionTime BETWEEN '{start_datum}' AND '{end_datum}'")
+    # Wir verbinden alle Teile mit " AND "
+    ausgabe_text = " AND \n".join(logik_teile)
+    
+    # Ausgabe in einem schönen Code-Block, bereit zum Kopieren
+    st.code(ausgabe_text, language="sql")
 
-# Ausgabespalten übersetzen
-technische_spalten = [auswahl_felder[spalte] for spalte in gewuenschte_spalten]
-
-# Ausgabe schön formatieren
-st.code(f"""
--- BENÖTIGTE SPALTEN (SELECT):
-{', '.join(technische_spalten) if technische_spalten else '*'}
-
--- FILTER-KRITERIEN (WHERE):
-{' AND '.join(abfrage_logik)}
-""", language="sql")
-
-st.success("Tipp: Du kannst diese Parameter jetzt direkt nutzen, um deine Daten im System zu filtern!")
+st.markdown("---")
+st.write("**Tipp zum Zeitbereich:** Den Zeitraum musst du direkt oben im Panel (über dem Filterausdruck) einstellen. Denke daran, zwischen 'Kalendertagen' (Strom) und 'Gastagen' (Gas) zu unterscheiden, falls das für euch relevant ist!")
